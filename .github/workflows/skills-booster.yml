@@ -19,6 +19,9 @@ on:
         default: '100'
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   skill-boost:
     runs-on: ubuntu-latest
@@ -32,6 +35,7 @@ jobs:
           node-version: '24'
 
       - name: Boost Skills
+        id: boost
         run: |
           REPEATS="${{ inputs.repeats }}"
           REPEATS="${REPEATS:-100}"
@@ -50,18 +54,30 @@ jobs:
           
           if [ ${#SKILLS[@]} -eq 0 ]; then
             echo "No skills found in the repository."
+            echo "SKILLS_JSON=[]" >> $GITHUB_ENV
+            echo "THIS_RUN_JSON={}" >> $GITHUB_ENV
             exit 0
           fi
           
+          # Convert skills array to JSON
+          SKILLS_JSON=$(printf '%s\n' "${SKILLS[@]}" | jq -R . | jq -s -c .)
+          echo "SKILLS_JSON=$SKILLS_JSON" >> $GITHUB_ENV
+
+          echo "{" > this_run_stats.json
+          FIRST=true
+
           # Loop through each skill and add/remove it REPEATS times
           for skill in "${SKILLS[@]}"; do
             echo "[$(date -u)] ===== Starting Boost for Skill: $skill (Repeats: $REPEATS) ====="
+            SUCCESS_COUNT=0
             for i in $(seq 1 "$REPEATS"); do
               echo "[$(date -u)]   -> Iteration $i/$REPEATS for $skill"
               
+              ADD_SUCCESS=0
               echo "[$(date -u)]      Running: npx -y skills add ${{ github.repository_owner }}/skills --skill $skill"
               if npx -y skills add "${{ github.repository_owner }}/skills" --skill "$skill"; then
                 echo "[$(date -u)]      ✅ Successfully added $skill"
+                ADD_SUCCESS=1
               else
                 echo "[$(date -u)]      ❌ Failed to add $skill"
               fi
@@ -69,9 +85,164 @@ jobs:
               echo "[$(date -u)]      Running: npx -y skills remove $skill"
               if npx -y skills remove "$skill"; then
                 echo "[$(date -u)]      ✅ Successfully removed $skill"
+                if [ $ADD_SUCCESS -eq 1 ]; then
+                  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                fi
               else
                 echo "[$(date -u)]      ❌ Failed to remove $skill"
               fi
             done
-            echo "[$(date -u)] ===== Finished Boost for Skill: $skill ====="
+            echo "[$(date -u)] ===== Finished Boost for Skill: $skill (Successes: $SUCCESS_COUNT) ====="
+            
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              echo "," >> this_run_stats.json
+            fi
+            echo "\"$skill\": $SUCCESS_COUNT" >> this_run_stats.json
           done
+          echo "}" >> this_run_stats.json
+          
+          THIS_RUN_JSON=$(cat this_run_stats.json | jq -c .)
+          echo "THIS_RUN_JSON=$THIS_RUN_JSON" >> $GITHUB_ENV
+          rm -f this_run_stats.json
+
+      - name: Generate Dashboard and Update Stats
+        shell: python
+        run: |
+          import os
+          import json
+          import datetime
+          import re
+
+          owner = "${{ github.repository_owner }}"
+          repo_fullname = "${{ github.repository }}"
+          repeats = int("${{ inputs.repeats }}" or "100")
+          frequency = 6
+          runs_per_week = (24 * 7) // frequency
+
+          # Parse this run stats
+          this_run_json_str = os.environ.get('THIS_RUN_JSON', '{}')
+          this_run_stats = json.loads(this_run_json_str)
+
+          # Find all skills and extract details
+          skills = []
+          for root, dirs, files in os.walk('.'):
+              if '.git' in root or '.github' in root:
+                  continue
+              if 'SKILL.md' in files:
+                  skill_file = os.path.join(root, 'SKILL.md')
+                  skill_name = os.path.basename(root)
+                  
+                  description = ""
+                  try:
+                      with open(skill_file, 'r', encoding='utf-8') as f:
+                          content = f.read()
+                          fm_match = re.search(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL | re.MULTILINE)
+                          if fm_match:
+                              fm_text = fm_match.group(1)
+                              desc_match = re.search(r'^description:\s*(.*)$', fm_text, re.MULTILINE)
+                              if desc_match:
+                                  description = desc_match.group(1).strip()
+                  except Exception as e:
+                      print(f"Error parsing {skill_file}: {e}")
+                      
+                  skills.append({
+                      'name': skill_name,
+                      'description': description
+                  })
+
+          skills.sort(key=lambda s: s['name'])
+
+          # Load existing stats
+          total_runs = 0
+          total_boosted = 0
+          if os.path.exists('stats.json'):
+              try:
+                  with open('stats.json', 'r') as f:
+                      old_stats = json.load(f)
+                      total_runs = old_stats.get('totalRuns', 0)
+                      total_boosted = old_stats.get('totalBoosted', 0)
+              except Exception:
+                  pass
+
+          skill_stats = {}
+          if os.path.exists('skill-stats.json'):
+              try:
+                  with open('skill-stats.json', 'r') as f:
+                      skill_stats = json.load(f)
+              except Exception:
+                  pass
+
+          # Calculate new metrics
+          this_run_total = sum(this_run_stats.values())
+          total_runs += 1
+          total_boosted += this_run_total
+          avg_per_run = total_boosted // total_runs if total_runs > 0 else 0
+          weekly_boost = this_run_total * runs_per_week
+
+          for skill_name, count in this_run_stats.items():
+              skill_stats[skill_name] = skill_stats.get(skill_name, 0) + count
+
+          # Save files
+          new_stats = {
+              'totalRuns': total_runs,
+              'totalBoosted': total_boosted,
+              'avgPerRun': avg_per_run,
+              'estimatedWeeklyBoost': weekly_boost,
+              'lastRun': datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+          }
+          with open('stats.json', 'w') as f:
+              json.dump(new_stats, f, indent=2)
+
+          with open('skill-stats.json', 'w') as f:
+              json.dump(skill_stats, f, indent=2)
+
+          # Generate README.md
+          readme_content = f"""# 🚀 Skills
+
+          This repository contains **{len(skills)}** reusable agent skills.
+
+          ## 🛠️ Available Skills
+
+          | Skill | Description | Installation |
+          | :--- | :--- | :--- |
+          """
+          for s in skills:
+              install_cmd = f"`npx skills add {owner}/skills --skill {s['name']}`"
+              readme_content += f"| `{s['name']}` | {s['description']} | {install_cmd} |\n"
+
+          readme_content += f"""
+          ## 📊 Stats Overview
+          - **Last Updated:** {new_stats['lastRun']}
+          - **Frequency:** Every {frequency} Hours
+          - **Total Runs:** {total_runs}
+          - **Total Successful Boosts:** {total_boosted}
+          - **Average Boosts Per Run:** {avg_per_run}
+          - **Estimated Weekly Boost:** ~{weekly_boost}
+
+          ## 🛠️ Skill Performance
+          | Skill Name | Boosts This Run | Total Boosted (Lifetime) | Est. Weekly Boost |
+          | :--- | :---: | :---: | :---: |
+          """
+          for s in skills:
+              name = s['name']
+              this_run = this_run_stats.get(name, 0)
+              lifetime = skill_stats.get(name, 0)
+              est_weekly = this_run * runs_per_week
+              readme_content += f"| `{name}` | {this_run} | {lifetime} | ~{est_weekly} |\n"
+
+          with open('README.md', 'w', encoding='utf-8') as f:
+              f.write(readme_content)
+
+      - name: Commit & Push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md stats.json skill-stats.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update dashboard and stats [skip ci]"
+            git push
+          fi

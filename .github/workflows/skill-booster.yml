@@ -207,7 +207,7 @@ jobs:
 
               ## 🛠️ Available Skills & Performance
 
-              <div class="table-wrapper" markdown="block">
+              <div class="overflow-x: auto; width: 100%;" markdown="block">
 
               | Skill | Description | Boosts This Run | Total Boosted (Lifetime) | Est. Weekly Boost | Installation |
               |:------|:------------|:----------------|:-------------------------|:------------------|:-------------|
@@ -224,12 +224,6 @@ jobs:
           readme_content += textwrap.dedent(f"""\
 
               </div>
-
-              <style>
-              .table-wrapper {{
-                overflow-x: scroll;
-              }}
-              </style>
 
               ## 📊 Stats Overview
               - **Last Updated:** {new_stats['lastRun']}

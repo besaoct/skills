@@ -10,7 +10,7 @@ on:
   pull_request:
     branches: [ main, master ]
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       repeats:
@@ -114,11 +114,12 @@ jobs:
           import json
           import datetime
           import re
+          import textwrap
 
           owner = "${{ github.repository_owner }}"
           repo_fullname = "${{ github.repository }}"
           repeats = int("${{ inputs.repeats }}" or "100")
-          frequency = 6
+          frequency = 24
           runs_per_week = (24 * 7) // frequency
 
           # Parse this run stats
@@ -199,17 +200,18 @@ jobs:
               json.dump(skill_stats, f, indent=2)
 
           # Generate README.md
-          readme_content = f"""# 🚀 Skills
+          readme_content = textwrap.dedent(f"""\
+              # 🚀 Skills
 
-This repository contains **{len(skills)}** reusable agent skills.
+              This repository contains **{len(skills)}** reusable agent skills.
 
-## 🛠️ Available Skills & Performance
+              ## 🛠️ Available Skills & Performance
 
-<div style="overflow-x: auto;">
+              <div style="overflow-x: auto;">
 
-| Skill | Description | Boosts This Run | Total Boosted (Lifetime) | Est. Weekly Boost | Installation |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-"""
+              | Skill | Description | Boosts This Run | Total Boosted (Lifetime) | Est. Weekly Boost | Installation |
+              | :--- | :--- | :---: | :---: | :---: | :--- |
+          """)
           for s in skills:
               name = s['name']
               desc = s['description']
@@ -219,17 +221,18 @@ This repository contains **{len(skills)}** reusable agent skills.
               install_cmd = f"<code style=\"white-space: nowrap;\">npx skills add {owner}/skills --skill {name}</code>"
               readme_content += f"| `{name}` | {desc} | {this_run} | {lifetime} | ~{est_weekly} | {install_cmd} |\n"
 
-          readme_content += f"""
-</div>
+          readme_content += textwrap.dedent(f"""\
 
-## 📊 Stats Overview
-- **Last Updated:** {new_stats['lastRun']}
-- **Frequency:** Every {frequency} Hours
-- **Total Runs:** {total_runs}
-- **Total Successful Boosts:** {total_boosted}
-- **Average Boosts Per Run:** {avg_per_run}
-- **Estimated Weekly Boost:** ~{weekly_boost}
-"""
+              </div>
+
+              ## 📊 Stats Overview
+              - **Last Updated:** {new_stats['lastRun']}
+              - **Frequency:** Every {frequency} Hours
+              - **Total Runs:** {total_runs}
+              - **Total Successful Boosts:** {total_boosted}
+              - **Average Boosts Per Run:** {avg_per_run}
+              - **Estimated Weekly Boost:** ~{weekly_boost}
+          """)
 
           with open('README.md', 'w', encoding='utf-8') as f:
               f.write(readme_content)

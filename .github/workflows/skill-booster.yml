@@ -211,7 +211,7 @@ jobs:
 
               | Skill | Description | Boosts This Run | Total Boosted (Lifetime) | Est. Weekly Boost | Installation |
               |:------|:------------|:----------------|:-------------------------|:------------------|:-------------|
-          """)
+          """) 
           for s in skills:
               name = s['name']
               desc = s['description'] or "No description available"

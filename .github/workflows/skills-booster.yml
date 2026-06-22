@@ -1,0 +1,77 @@
+name: skills-booster
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: 'Number of times to add/remove each skill'
+        required: false
+        default: '100'
+        type: string
+
+jobs:
+  skill-boost:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Boost Skills
+        run: |
+          REPEATS="${{ inputs.repeats }}"
+          REPEATS="${REPEATS:-100}"
+          
+          # Find all skills in the repository (directories containing SKILL.md)
+          SKILLS=()
+          while IFS= read -r skill_file; do
+            if [ -n "$skill_file" ]; then
+              skill_dir=$(dirname "$skill_file")
+              skill_name=$(basename "$skill_dir")
+              SKILLS+=("$skill_name")
+            fi
+          done < <(find . -maxdepth 3 -name "SKILL.md" -not -path '*/.*')
+          
+          echo "Found skills: ${SKILLS[*]}"
+          
+          if [ ${#SKILLS[@]} -eq 0 ]; then
+            echo "No skills found in the repository."
+            exit 0
+          fi
+          
+          # Loop through each skill and add/remove it REPEATS times
+          for skill in "${SKILLS[@]}"; do
+            echo "[$(date -u)] ===== Starting Boost for Skill: $skill (Repeats: $REPEATS) ====="
+            for i in $(seq 1 "$REPEATS"); do
+              echo "[$(date -u)]   -> Iteration $i/$REPEATS for $skill"
+              
+              echo "[$(date -u)]      Running: npx -y skills add ${{ github.repository_owner }}/skills --skill $skill"
+              if npx -y skills add "${{ github.repository_owner }}/skills" --skill "$skill"; then
+                echo "[$(date -u)]      ✅ Successfully added $skill"
+              else
+                echo "[$(date -u)]      ❌ Failed to add $skill"
+              fi
+              
+              echo "[$(date -u)]      Running: npx -y skills remove $skill"
+              if npx -y skills remove "$skill"; then
+                echo "[$(date -u)]      ✅ Successfully removed $skill"
+              else
+                echo "[$(date -u)]      ❌ Failed to remove $skill"
+              fi
+            done
+            echo "[$(date -u)] ===== Finished Boost for Skill: $skill ====="
+          done

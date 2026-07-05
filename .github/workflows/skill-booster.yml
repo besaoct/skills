@@ -119,7 +119,7 @@ jobs:
           owner = "${{ github.repository_owner }}"
           repo_fullname = "${{ github.repository }}"
           repeats = int("${{ inputs.repeats }}" or "100")
-          frequency = 24
+          frequency = 12
           runs_per_week = (24 * 7) // frequency
 
           # Parse this run stats
